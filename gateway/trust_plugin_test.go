@@ -153,9 +153,18 @@ func TestBootEntryWireShape(t *testing.T) {
 }
 
 func TestPluginBundleServesAsModule(t *testing.T) {
-	// 插件 bundle 必须是合法 ESM 且带 loader 所需导出
+	// 插件 bundle 必须符合 client-modules 注册契约：自调用
+	// __ModuleLoader__.load({id, factory})，factory 返回 name/inject/apply
 	src := string(trustPluginBundle)
-	for _, want := range []string{"export const name", "export const inject", "export function apply", "ctx.get('connection')", "isLoopback = true"} {
+	for _, want := range []string{
+		"window.__ModuleLoader__.load({",
+		`id: 'dsh-gateway-trust'`,
+		"factory: (require) => {",
+		"exports.inject = ['connection']",
+		"exports.apply = (ctx) => {",
+		"conn.isLoopback = true",
+		"return module.exports",
+	} {
 		if !strings.Contains(src, want) {
 			t.Fatalf("插件 bundle 缺少 %q", want)
 		}
