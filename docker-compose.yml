@@ -10,3 +10,4 @@ services:
       - 8443:8443
     volumes:
       - ./workspace:/root
+      - ./data:/data

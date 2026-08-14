@@ -26,7 +26,8 @@ var (
 
 	// dsh web 子进程守护（容器内由 Dockerfile CMD 传入；本机单独用 dsh-gateway 时留空 = 纯代理）
 	dshBin  = flag.String("dsh-bin", "", "dsh web 的 bin.js 路径，非空则作为子进程守护")
-	dataDir = flag.String("data-dir", "/root", "dsh 数据目录（作为 HOME 和 cwd），仅 -dsh-bin 非空时使用")
+	dataDir = flag.String("data-dir", "/data", "dsh 数据目录（作为 HOME，.dsh/ 配置所在），仅 -dsh-bin 非空时使用")
+	workDir = flag.String("work-dir", "/root", "dsh web 工作目录（cwd，终端打开位置），仅 -dsh-bin 非空时使用")
 )
 
 const restartDelay = 2 * time.Second // dsh web 崩溃后的重启间隔
@@ -101,7 +102,10 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		log.Fatalf("创建数据目录失败: %v", err)
 	}
-	log.Printf("数据目录: %s", *dataDir)
+	if err := os.MkdirAll(*workDir, 0o755); err != nil {
+		log.Fatalf("创建工作目录失败: %v", err)
+	}
+	log.Printf("数据目录: %s，工作目录: %s", *dataDir, *workDir)
 
 	// 子进程接线与 -backend 同一来源：dsh web 必须监听在代理的上游地址上
 	host := backendURL.Hostname()
@@ -116,7 +120,7 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 	for {
 		log.Printf("启动 dsh web (%s:%s) ...", host, port)
 		cmd := exec.Command("node", args...)
-		cmd.Dir = *dataDir // dsh 的 cwd
+		cmd.Dir = *workDir // dsh 的 cwd（终端打开位置）
 		cmd.Env = env
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

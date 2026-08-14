@@ -1,5 +1,6 @@
 # 运行数据
 workspace/
+data/
 
 # 本地产物与 git
 gateway/dsh-gateway
