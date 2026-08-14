@@ -58,6 +58,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
+# nvm 供终端用户自选 node 版本：装 /root/.nvm 并自接 .bashrc（/root 不再被卷挂载，不会遮蔽）
+RUN curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh" | bash
+
 COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=gateway-build /out/dsh-gateway /usr/local/bin/dsh-gateway
 

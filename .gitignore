@@ -8,3 +8,4 @@ data/
 # 本地编译产物
 gateway/dsh-gateway
 *.log
+ssh/
