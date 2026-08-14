@@ -2,7 +2,7 @@
 data/
 
 # 本地产物与 git
-auth/goauth-proxy
+gateway/dsh-gateway
 .git/
 *.log
 .env

@@ -38,16 +38,16 @@ RUN apt-get update \
 # nvm 下 npm 全局 prefix 带版本号，固定 --prefix 让运行时 COPY 稳定
 RUN npm install -g --prefix /usr/local --no-audit --no-fund --registry=${NPM_REGISTRY} @deepseek-ai/dsh@${DSH_VERSION}
 
-# 阶段 2：编译 goauth-proxy（静态二进制）
-FROM golang:1.26-alpine AS auth-build
+# 阶段 2：编译 dsh-gateway（静态二进制）
+FROM golang:1.26-alpine AS gateway-build
 
 ENV GOPROXY=https://goproxy.cn,direct
 WORKDIR /src
 # 模块下载单独成层，源码改动不重下依赖
-COPY auth/go.mod auth/go.sum ./
+COPY gateway/go.mod gateway/go.sum ./
 RUN go mod download
-COPY auth/ ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/goauth-proxy .
+COPY gateway/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/dsh-gateway .
 
 # 阶段 3：运行时（纯 Debian，可继续 apt 装软件）
 FROM nodebase AS runtime
@@ -58,10 +58,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=auth-build /out/goauth-proxy /usr/local/bin/goauth-proxy
+COPY --from=gateway-build /out/dsh-gateway /usr/local/bin/dsh-gateway
 
-# goauth-proxy 直接作 PID 1：内建 dsh 子进程守护与信号转发，无需 shell 脚本和 init
-ENTRYPOINT ["/usr/local/bin/goauth-proxy"]
+# dsh-gateway 直接作 PID 1：内建 dsh 子进程守护与信号转发，无需 shell 脚本和 init
+ENTRYPOINT ["/usr/local/bin/dsh-gateway"]
 # 容器内接线（与 compose 的 ports/volume 配套）：0.0.0.0 绑定是 bridge 端口发布的前提
 CMD ["-listen", "0.0.0.0:8080", "-tls-listen", "0.0.0.0:8443", "-backend", "http://127.0.0.1:3080", "-dsh-bin", "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js", "-data-dir", "/data"]
 

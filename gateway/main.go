@@ -24,7 +24,7 @@ var (
 	insecureCookie = flag.Bool("insecure-cookie", false, "本地 http 调试时关闭 cookie 的 Secure 标志")
 	tlsListen      = flag.String("tls-listen", "", "自签 HTTPS 监听地址（如 0.0.0.0:8443），空则关闭")
 
-	// dsh web 子进程守护（容器内由 Dockerfile CMD 传入；本机单独用 goauth-proxy 时留空 = 纯代理）
+	// dsh web 子进程守护（容器内由 Dockerfile CMD 传入；本机单独用 dsh-gateway 时留空 = 纯代理）
 	dshBin  = flag.String("dsh-bin", "", "dsh web 的 bin.js 路径，非空则作为子进程守护")
 	dataDir = flag.String("data-dir", "/data", "dsh 数据目录（作为 HOME 和 cwd），仅 -dsh-bin 非空时使用")
 )
@@ -36,7 +36,7 @@ const restartDelay = 2 * time.Second // dsh web 崩溃后的重启间隔
 // catch-all（实测 POST /login 返回 405），固定路径不会冲突；
 // 且路径不再随重启变化，旧标签页永远不会失效
 func main() {
-	log.SetPrefix("[dsh-auth] ")
+	log.SetPrefix("[dsh-gateway] ")
 	flag.Parse()
 
 	user := os.Getenv("AUTH_USER")

@@ -1,4 +1,4 @@
-module goauth-proxy
+module dsh-gateway
 
 go 1.25.0
 
