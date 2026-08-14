@@ -26,8 +26,7 @@ const (
 	// 认证入口固定在网关自留命名空间 /plugins/dsh-gateway-auth/ 下：dsh web
 	// 只注册 /plugins、/api 前缀路由，SPA catch-all 不可能吞掉精确路径；真实
 	// 插件 id 是 npm 包名，dsh-gateway-* 前缀不会撞名（trust 插件 bundle 同在
-	// 此命名空间，见 trust_plugin.go）。旧 /login、/logout 保留 302 跳转兜底
-	// 旧标签页（见 main.go）
+	// 此命名空间，见 trust_plugin.go）。旧 /login、/logout 不保留
 	loginPath  = "/plugins/dsh-gateway-auth/login"
 	logoutPath = "/plugins/dsh-gateway-auth/logout"
 	homePath   = "/" // 登录成功跳转目标（也是反代的 catch-all 根）
