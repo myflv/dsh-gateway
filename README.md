@@ -1,6 +1,6 @@
 # dsh-gateway
 
-dsh web + 认证网关的一体镜像，`docker compose up` 即用（登录入口固定 `/login`，带 bcrypt 密码、会话和 CSRF 防护）。
+dsh web + 认证网关的一体镜像，`docker compose up` 即用（登录入口 `/plugins/dsh-gateway-auth/login`，带 bcrypt 密码、会话和 CSRF 防护）。
 
 ## 快速开始
 
@@ -9,7 +9,7 @@ dsh web + 认证网关的一体镜像，`docker compose up` 即用（登录入�
 docker compose up -d
 ```
 
-打开 `http://宿主机IP:8080/login` 登录。工作目录就是 `/root`（挂载的 `./workspace`），Web UI 直接 Continue 即可，无需手动选工作区。
+打开 `http://宿主机IP:8080/plugins/dsh-gateway-auth/login` 登录。工作目录就是 `/root`（挂载的 `./workspace`），Web UI 直接 Continue 即可，无需手动选工作区。
 
 ## 配置
 

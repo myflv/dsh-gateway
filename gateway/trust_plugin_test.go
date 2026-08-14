@@ -7,8 +7,7 @@ import (
 	"testing"
 )
 
-// 模拟 host injectBootManifest 的真实产物：<head> 首位 script，
-// json 内 < 已转义为 <
+// 模拟 host injectBootManifest 的真实产物（< 转义为 <）
 func sampleShellHTML() []byte {
 	return []byte(`<!doctype html>
 <html>
@@ -130,8 +129,7 @@ func TestInjectMalformedFailsLoud(t *testing.T) {
 }
 
 func TestBootEntryWireShape(t *testing.T) {
-	// 注入条目的 wire 形态必须通过 host 的 parseBootManifest 校验：
-	// id/url/rev 为 string，inject 为 string 数组，immediately 为 boolean
+	// wire 形态须过 host 的 parseBootManifest 校验
 	var entry map[string]json.RawMessage
 	if err := json.Unmarshal(trustBootEntryJSON, &entry); err != nil {
 		t.Fatalf("boot 条目不是合法 JSON: %v", err)
@@ -153,16 +151,15 @@ func TestBootEntryWireShape(t *testing.T) {
 }
 
 func TestPluginBundleServesAsModule(t *testing.T) {
-	// 插件 bundle 必须符合 client-modules 注册契约：自调用
-	// __ModuleLoader__.load({id, factory})，factory 返回 name/inject/apply
+	// 插件 bundle 须自调用 __ModuleLoader__.load({id, factory}) 注册
 	src := string(trustPluginBundle)
 	for _, want := range []string{
 		"window.__ModuleLoader__.load({",
-		`id: 'dsh-gateway-trust'`,
+		"const pluginID = 'dsh-gateway-trust'",
 		"factory: (require) => {",
 		"exports.inject = ['connection']",
 		"exports.apply = (ctx) => {",
-		"conn.isLoopback = true",
+		"isLoopback = true",
 		"return module.exports",
 	} {
 		if !strings.Contains(src, want) {

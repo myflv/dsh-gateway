@@ -28,10 +28,9 @@ func proxyHandler(backend *url.URL) http.Handler {
 			req.Header.Set("Origin", originHeader)
 		}
 	}
-	// 信任插件注入：只碰 200 + text/html + 带 __DSH_BOOT__ 标记的壳页面，
-	// 其余响应原样透传（dsh 不压缩静态响应，无需解压处理）
+	// 壳 HTML 注入信任插件 boot 条目，其余响应透传
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Encoding") != "" {
+		if resp.StatusCode != http.StatusOK {
 			return nil
 		}
 		if !strings.Contains(resp.Header.Get("Content-Type"), "text/html") {
@@ -44,16 +43,15 @@ func proxyHandler(backend *url.URL) http.Handler {
 		}
 		patched, changed, err := injectBootManifestEntry(body)
 		if err != nil {
-			// 清单在但解析失败 = dsh 版本漂移，必须响亮失败而不是静默空白
-			log.Printf("信任插件注入失败: %v", err)
+			log.Printf("信任插件注入失败: %v", err) // 版本漂移响亮失败，不静默带空白配置跑
 			return err
 		}
-		resp.Body = io.NopCloser(bytes.NewReader(patched))
-		resp.ContentLength = int64(len(patched))
-		resp.Header.Set("Content-Length", strconv.Itoa(len(patched)))
 		if changed {
-			log.Printf("已注入信任插件 boot 条目（%s）", trustPluginID)
+			resp.Body = io.NopCloser(bytes.NewReader(patched))
+			resp.Header.Set("Content-Length", strconv.Itoa(len(patched)))
+			return nil
 		}
+		resp.Body = io.NopCloser(bytes.NewReader(body)) // 无标记页面：仅恢复被读的 Body，header 不动
 		return nil
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
