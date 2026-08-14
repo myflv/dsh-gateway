@@ -256,13 +256,19 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	redirectLogin(w, r, "", "")
 }
 
-// 认证中间件：有有效会话才放行，否则跳登录页（只包数据面，见 main 的路由注册）
+// 认证中间件：数据面（/api、/plugins）与页面导航请求需会话，否则 302 登录页。
+// 浏览器资源请求（manifest/favicon/script 等，Sec-Fetch-Mode 非 navigate）公开——它们不带 cookie 也能加载，无需维护资源名单
 func requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if c, err := r.Cookie(cookieName); err == nil && validSession(c.Value) {
-			next.ServeHTTP(w, r)
+		dataPlane := strings.HasPrefix(r.URL.Path, apiPrefix) || strings.HasPrefix(r.URL.Path, pluginsPrefix)
+		if dataPlane || r.Header.Get("Sec-Fetch-Mode") == "navigate" {
+			if c, err := r.Cookie(cookieName); err == nil && validSession(c.Value) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			redirectLogin(w, r, "", "")
 			return
 		}
-		redirectLogin(w, r, "", "")
+		next.ServeHTTP(w, r)
 	})
 }

@@ -63,11 +63,8 @@ func main() {
 	mux.HandleFunc(loginPath, handleLogin)
 	mux.HandleFunc(logoutPath, handleLogout)
 
-	// 认证边界：数据面（/api、/plugins，dsh 只注册这两个前缀）受保护；其余（SPA 壳、静态资源）
-	// 公开——浏览器对 manifest 等资源请求不带 cookie，公开面让它们自然放行
-	mux.Handle(apiPrefix, requireAuth(proxyHandler(backendURL)))
-	mux.Handle(pluginsPrefix, requireAuth(proxyHandler(backendURL)))
-	mux.Handle(homePath, proxyHandler(backendURL))
+	// 认证边界在 requireAuth 内：数据面与页面导航需会话，浏览器资源请求公开
+	mux.Handle(homePath, requireAuth(proxyHandler(backendURL)))
 
 	log.Printf("认证用户: %s", user)
 	log.Printf("listening on %s -> %s", *listen, *backend)
