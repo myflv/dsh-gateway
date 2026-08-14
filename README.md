@@ -21,6 +21,8 @@ docker compose up -d
 | `./data` → `/data` | dsh 配置（DSH_HOME：settings、凭据、profiles），删掉重来 |
 | `./ssh` → `/root/.ssh` | ssh 密钥（放你的 id_ed25519 等，权限 600） |
 
+终端用户可用 nvm 切换 node 版本（镜像内置在 /root，`nvm install 22 && nvm use 22`）；装的版本在容器重建后丢失，需重装。
+
 公网访问请用 frp + nginx 反代 8080（正式证书，cookie 的 Secure 标志自动适配），不要直接开放端口。
 
 ## 更新镜像
