@@ -53,10 +53,19 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/dsh-gateway .
 # 阶段 3：运行时（纯 Debian，可继续 apt 装软件）
 FROM nodebase AS runtime
 
+ARG NVM_VERSION=0.40.3
+
 # 要额外装的软件加在这一行
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
+
+# nvm 供终端用户自选 node 版本（系统 node 钉在 /usr/local 供 dsh 使用，两者互不影响）
+ENV NVM_DIR=/usr/local/nvm
+RUN mkdir -p "$NVM_DIR" \
+    && curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" | bash
+# /root 是卷挂载点，镜像内 /root/.bashrc 会被遮蔽；改从 /etc/bash.bashrc 全局加载 nvm
+RUN echo 'export NVM_DIR=/usr/local/nvm; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"' >> /etc/bash.bashrc
 
 COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=gateway-build /out/dsh-gateway /usr/local/bin/dsh-gateway
