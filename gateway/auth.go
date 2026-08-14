@@ -252,9 +252,14 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 	redirectLogin(w, r, "", "")
 }
 
-// 认证中间件：有有效会话才放行，否则跳登录页
+// 认证中间件：保护 dsh 的数据面（/api、/plugins 前缀），其余（SPA 壳、静态资源、PWA 元数据）公开。
+// dsh 只注册这两个前缀路由、页面壳不含数据；浏览器不带 cookie 的资源请求（如 manifest）因此自然放行
 func requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/") && !strings.HasPrefix(r.URL.Path, "/plugins/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if c, err := r.Cookie(cookieName); err == nil && validSession(c.Value) {
 			next.ServeHTTP(w, r)
 			return

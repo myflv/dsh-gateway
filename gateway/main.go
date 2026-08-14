@@ -63,7 +63,7 @@ func main() {
 	mux.HandleFunc(loginPath, handleLogin)
 	mux.HandleFunc(logoutPath, handleLogout)
 
-	// 其余所有路径：会话有效才反代到后端应用
+	// 其余所有路径：数据面（/api、/plugins）会话有效才反代，页面壳与静态资源公开
 	mux.Handle(homePath, requireAuth(proxyHandler(backendURL)))
 
 	log.Printf("认证用户: %s", user)
