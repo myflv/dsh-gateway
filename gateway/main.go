@@ -27,7 +27,7 @@ var (
 
 	// dsh web 子进程守护（容器内由 Dockerfile CMD 传入；本机单独用 dsh-gateway 时留空 = 纯代理）
 	dshBin  = flag.String("dsh-bin", "", "dsh web 的 bin.js 路径，非空则作为子进程守护")
-	dataDir = flag.String("data-dir", "/data/.dsh", "dsh 配置目录（DSH_HOME，即原 ~/.dsh 的语义），仅 -dsh-bin 非空时使用")
+	dataDir = flag.String("data-dir", "/data/.dsh", "dsh 配置目录（DSH_HOME，即原 ~/.dsh 的语义；工作区 = 其父目录），仅 -dsh-bin 非空时使用")
 )
 
 const restartDelay = 2 * time.Second // dsh web 崩溃后的重启间隔
@@ -110,11 +110,18 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 	// os/exec 对重复键保留最后一个，追加的 DSH_HOME 优先
 	env := append(os.Environ(), "DSH_HOME="+*dataDir)
 
+	// 工作区 = 配置目录的父目录（标准布局：/data 下放项目文件，/data/.dsh 放配置）
+	// 强制以 .dsh 结尾：否则父目录会静默落到意外位置（如 /data 的父目录是 /）
+	if filepath.Base(*dataDir) != ".dsh" {
+		log.Fatalf("data-dir 必须以 .dsh 结尾（工作区取其父目录），当前: %s", *dataDir)
+	}
+	workDir := filepath.Dir(*dataDir)
 	if err := os.MkdirAll(*dataDir, 0o755); err != nil {
 		log.Fatalf("创建数据目录失败: %v", err)
 	}
-	// 工作区 = 配置目录的父目录（标准布局：/data 下放项目文件，/data/.dsh 放配置）
-	workDir := filepath.Dir(*dataDir)
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		log.Fatalf("创建工作目录失败: %v", err)
+	}
 	log.Printf("数据目录: %s，工作区: %s", *dataDir, workDir)
 
 	for {
