@@ -1,0 +1,73 @@
+name: build-push
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 3 * * *'   # 每天检查 dsh 是否有新版本
+  workflow_dispatch:
+
+permissions:
+  packages: write   # 推送 GHCR
+  actions: read     # build-push-action 的 gha 缓存
+
+# 连续 push 或 push 撞上定时任务时取消旧构建，避免并发重复构建
+concurrency:
+  group: dsh-auth-build
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查 dsh 最新版本
+        id: check
+        run: |
+          NEW=$(curl -fsS https://registry.npmjs.org/@deepseek-ai/dsh/latest | jq -r .version)
+          case "$NEW" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "版本解析失败: $NEW"; exit 1 ;;
+          esac
+          echo "dsh_version=$NEW" >> "$GITHUB_OUTPUT"
+          # 定时触发且该版本镜像已存在 -> 跳过；代码变更或手动触发 -> 总是构建
+          if [ "${{ github.event_name }}" = "schedule" ] \
+            && docker manifest inspect "ghcr.io/${{ github.repository }}:$NEW" >/dev/null 2>&1; then
+            echo "镜像已存在，跳过"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 登录 GHCR
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 设置 qemu（arm64 构建模拟）
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/setup-qemu-action@v3
+
+      - name: 设置 buildx（docker-container driver，gha 缓存导出必需）
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/setup-buildx-action@v3
+
+      - name: 构建并推送
+        if: steps.check.outputs.skip != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # amd64 + arm64（NAS 等 ARM 设备自动拉对应架构）
+          platforms: linux/amd64,linux/arm64
+          # gha 缓存：node 阶段（最耗时）在版本不变时直接命中；
+          # ignore-error 让缓存服务不可用时构建不中断
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+          tags: |
+            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}:${{ steps.check.outputs.dsh_version }}
+          build-args: |
+            DSH_VERSION=${{ steps.check.outputs.dsh_version }}

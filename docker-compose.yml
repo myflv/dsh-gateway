@@ -1,0 +1,12 @@
+services:
+  server:
+    image: ghcr.io/myflv/dsh-gateway
+    restart: unless-stopped
+    environment:
+      AUTH_USER: admin
+      AUTH_PASSWORD: admin
+    ports:
+      - 8080:8080
+      - 8443:8443
+    volumes:
+      - ./data:/data
