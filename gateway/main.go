@@ -61,6 +61,18 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc(loginPath, handleLogin)
 	mux.HandleFunc(logoutPath, handleLogout)
+	// 旧路径 302 兜底：路径迁移后旧标签页/书签不失效（保留查询串，如登录失败回带 err/u）
+	legacy := func(target string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			loc := target
+			if r.URL.RawQuery != "" {
+				loc += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, loc, http.StatusFound)
+		}
+	}
+	mux.HandleFunc("/login", legacy(loginPath))
+	mux.HandleFunc("/logout", legacy(logoutPath))
 
 	// 认证边界在 requireAuth 内：数据面与页面导航需会话，浏览器资源请求公开
 	mux.Handle(homePath, requireAuth(proxyHandler(backendURL)))

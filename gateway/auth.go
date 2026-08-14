@@ -23,10 +23,13 @@ const (
 	maxFailures = 5                // 连续失败次数
 	lockTime    = 5 * time.Minute  // 锁定时长
 
-	// 认证入口固定路径：dsh web 服务端只注册 /plugins 和 /api 前缀路由，
-	// 其余走 SPA catch-all，固定路径不会冲突；且不随重启变化，旧标签页不失效
-	loginPath  = "/login"
-	logoutPath = "/logout"
+	// 认证入口固定在网关自留命名空间 /plugins/dsh-gateway-auth/ 下：dsh web
+	// 只注册 /plugins、/api 前缀路由，SPA catch-all 不可能吞掉精确路径；真实
+	// 插件 id 是 npm 包名，dsh-gateway-* 前缀不会撞名（trust 插件 bundle 同在
+	// 此命名空间，见 trust_plugin.go）。旧 /login、/logout 保留 302 跳转兜底
+	// 旧标签页（见 main.go）
+	loginPath  = "/plugins/dsh-gateway-auth/login"
+	logoutPath = "/plugins/dsh-gateway-auth/logout"
 	homePath   = "/" // 登录成功跳转目标（也是反代的 catch-all 根）
 
 	// dsh 的数据面前缀：认证只保护这两个（见 main 的路由注册），页面壳与静态资源公开
