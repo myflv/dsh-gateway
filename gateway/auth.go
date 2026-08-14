@@ -107,8 +107,7 @@ func newCSRF() string {
 	return token
 }
 
-// 校验（不消费）：失败尝试不消耗 token，输错密码可以直接重试，
-// 多标签页各自持有有效 token 互不干扰
+// 校验（不消费）：失败尝试不消耗 token，输错可直接重试，多标签页互不干扰
 func checkCSRF(token string) bool {
 	csrfMu.Lock()
 	defer csrfMu.Unlock()
@@ -147,8 +146,7 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-// limited 只读检查：锁定期内返回 true。注意不能在这里删除计数，
-// 否则每次请求都从 0 开始，永远触发不了锁定
+// limited 只读检查：锁定期内返回 true；不能删计数，否则永远触发不了锁定
 func limited(ip string) bool {
 	if v, ok := failures.Load(ip); ok {
 		a := v.(*attempt)

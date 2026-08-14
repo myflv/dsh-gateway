@@ -7,8 +7,7 @@ import (
 	"net/url"
 )
 
-// proxyHandler 把请求转发到 dsh web（容器内 127.0.0.1:3080）
-// 标准库 ReverseProxy 自带 WebSocket 转发支持，dsh web 的终端流没问题
+// proxyHandler 转发到 dsh web（容器内 127.0.0.1:3080）；标准库 ReverseProxy 自带 WebSocket 支持
 func proxyHandler(backend *url.URL) http.Handler {
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 	director := proxy.Director

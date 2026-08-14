@@ -14,13 +14,10 @@ import (
 	"time"
 )
 
-// 自签证书的 SAN 固定为回环地址（正式 TLS 交给 nginx，见 README）。
-// 每次进程启动重新生成（指纹不固定），NotAfter 10 年只是证书字段装饰，
-// 实际有效期即进程生命周期
+// 自签证书：SAN 固定回环地址（正式 TLS 交给 nginx），每次启动重新生成，NotAfter 只是字段装饰
 const tlsHosts = "localhost,127.0.0.1"
 
-// selfSignedCert 生成自签证书（ECDSA P-256）。免去证书文件管理；
-// 浏览器首次访问需手动信任（https 即安全上下文，crypto.randomUUID 等可用）
+// selfSignedCert 生成自签证书（ECDSA P-256），免证书文件管理；浏览器首次访问需手动信任
 func selfSignedCert(hosts []string) (tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
