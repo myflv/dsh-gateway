@@ -26,7 +26,7 @@ var (
 
 	// dsh web 子进程守护（容器内由 Dockerfile CMD 传入；本机单独用 dsh-gateway 时留空 = 纯代理）
 	dshBin  = flag.String("dsh-bin", "", "dsh web 的 bin.js 路径，非空则作为子进程守护")
-	dataDir = flag.String("data-dir", "/data", "dsh 数据目录（作为 HOME，.dsh/ 配置所在），仅 -dsh-bin 非空时使用")
+	dataDir = flag.String("data-dir", "/data", "dsh 配置目录（DSH_HOME，即原 ~/.dsh 的语义），仅 -dsh-bin 非空时使用")
 	workDir = flag.String("work-dir", "/root", "dsh web 工作目录（cwd，终端打开位置），仅 -dsh-bin 非空时使用")
 )
 
@@ -114,8 +114,8 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 		port = "80"
 	}
 	args := []string{*dshBin, "web", "--host", host, "--port", port}
-	// HOME 覆盖为数据目录（dsh 的 .dsh/ 配置所在）；os/exec 对重复键保留最后一个
-	env := append(os.Environ(), "HOME="+*dataDir)
+	// dsh 配置目录用官方 DSH_HOME 指定（默认才是 ~/.dsh），HOME 保持用户原样（ssh/nvm/bashrc 全走 /root）
+	env := append(os.Environ(), "DSH_HOME="+*dataDir)
 
 	for {
 		log.Printf("启动 dsh web (%s:%s) ...", host, port)
