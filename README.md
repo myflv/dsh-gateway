@@ -18,7 +18,7 @@ docker compose up -d
 |---|---|
 | `AUTH_USER` / `AUTH_PASSWORD` | 登录用户名/密码，不填启动报错 |
 | `ports` | `8080` 认证入口（http），`8443` 自签 HTTPS（证书只含 localhost/127.0.0.1，供本机/调试） |
-| `./data` → `/data` | dsh 配置（DSH_HOME：settings、凭据、profiles），删掉重来 |
+| `./data` → `/data` | dsh 工作区（cwd）+ 配置（`/data/.dsh`：settings、凭据、profiles），删掉重来 |
 | `./ssh` → `/root/.ssh` | ssh 密钥（放你的 id_ed25519 等，权限 600） |
 
 终端用户可用 nvm 切换 node 版本（镜像内置在 /root，`nvm install 22 && nvm use 22`）；装的版本在容器重建后丢失，需重装。
