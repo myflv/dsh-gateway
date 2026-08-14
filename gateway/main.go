@@ -27,7 +27,7 @@ var (
 
 	// dsh web 子进程守护（容器内由 Dockerfile CMD 传入；本机单独用 dsh-gateway 时留空 = 纯代理）
 	dshBin  = flag.String("dsh-bin", "", "dsh web 的 bin.js 路径，非空则作为子进程守护")
-	workDir = flag.String("work-dir", "/data", "dsh 工作目录（cwd，工作区根目录；配置固定在其下 .dsh/），仅 -dsh-bin 非空时使用；容器内由 Dockerfile CMD 传 /root")
+	workDir = flag.String("work-dir", "/root", "dsh 工作目录（cwd，工作区根目录；配置固定在其下 .dsh/），仅 -dsh-bin 非空时使用")
 )
 
 const restartDelay = 2 * time.Second // dsh web 崩溃后的重启间隔
@@ -102,7 +102,7 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 		port = "80"
 	}
 	args := []string{*dshBin, "web", "--host", host, "--port", port}
-	// 配置目录固定为工作区下的 .dsh/（容器内 /root 挂载工作区卷，/root/.dsh 放配置）
+	// 配置目录固定为工作区下的 .dsh/（标准布局：工作区根目录放项目文件，.dsh/ 放配置）
 	dshHome := filepath.Join(*workDir, ".dsh")
 	if err := os.MkdirAll(*workDir, 0o755); err != nil {
 		log.Fatalf("创建工作目录失败: %v", err)

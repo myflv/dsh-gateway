@@ -18,16 +18,19 @@ RUN apt-get update \
 # nvm 装 /opt/nvm（/root 是工作区卷挂载点，放 /root/.nvm 会被卷遮蔽丢 node）
 ENV NVM_DIR=/opt/nvm
 
-# nvm 是 shell 函数，需 source 后使用；终端用户的登录 shell 由 /etc/profile.d 注入
-RUN mkdir -p /opt/nvm && NVM_DIR=/opt/nvm curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" | bash
+# nvm 是 shell 函数，需 source 后使用（install.sh 需要目标目录已存在）
+RUN mkdir -p /opt/nvm && curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/v${NVM_VERSION}/install.sh" | bash
 
 RUN bash -lc 'source "$NVM_DIR/nvm.sh" && nvm install "$NVM_NODE_VERSION" && nvm alias default "$NVM_NODE_VERSION"'
 
 # 守护进程不能依赖交互 shell，路径固化到 ENV（终端用户则用 nvm 自选版本）
-ENV PATH=/opt/nvm/versions/node/v${NVM_NODE_VERSION}/bin:${PATH}
+ENV PATH=$NVM_DIR/versions/node/v${NVM_NODE_VERSION}/bin:${PATH}
 
-# 终端用户的登录 shell（HOME=/root 在卷里，镜像 /root/.bashrc 被遮蔽，nvm 由 profile.d 注入）
-RUN printf 'export NVM_DIR=/opt/nvm\n[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"\n' > /etc/profile.d/nvm.sh
+# 终端用户 shell 注入 nvm（/root 是卷挂载点，镜像 /root/.bashrc 被遮蔽）：profile.d 覆盖登录 shell，bash.bashrc 覆盖交互 shell，两者互补
+RUN printf '[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"\n' > /etc/profile.d/nvm.sh
+RUN cat >> /etc/bash.bashrc <<'EOF'
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+EOF
 
 RUN node --version && npm --version
 
@@ -72,7 +75,6 @@ COPY --from=gateway-build /out/dsh-gateway /opt/dsh-gateway
 # dsh-gateway 直接作 PID 1：内建 dsh 子进程守护与信号转发，无需 shell 脚本和 init
 ENTRYPOINT ["/opt/dsh-gateway"]
 # 容器内接线（与 compose 的 ports 配套）：只列与默认值不同的参数；0.0.0.0 绑定是 bridge 端口发布的前提
-# -work-dir /root：/root 是工作区卷挂载点（cwd + HOME，配置派生 /root/.dsh），选择器默认目录就是工作区
-CMD ["-listen", "0.0.0.0:8080", "-tls-listen", "0.0.0.0:8443", "-dsh-bin", "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js", "-work-dir", "/root"]
+CMD ["-listen", "0.0.0.0:8080", "-tls-listen", "0.0.0.0:8443", "-dsh-bin", "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"]
 
 EXPOSE 8080 8443
