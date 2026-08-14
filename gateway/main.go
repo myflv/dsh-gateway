@@ -26,7 +26,6 @@ var (
 
 	// dsh web 子进程守护（容器内由 Dockerfile CMD 传入；本机单独用 dsh-gateway 时留空 = 纯代理）
 	dshBin  = flag.String("dsh-bin", "", "dsh web 的 bin.js 路径，非空则作为子进程守护")
-	nodeBin = flag.String("node-bin", "node", "调用 dsh-bin 的 node 可执行文件（容器内用绝对路径，避免依赖用户 PATH）")
 	dataDir = flag.String("data-dir", "/root", "dsh 数据目录（作为 HOME 和 cwd），仅 -dsh-bin 非空时使用")
 )
 
@@ -116,7 +115,7 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 
 	for {
 		log.Printf("启动 dsh web (%s:%s) ...", host, port)
-		cmd := exec.Command(*nodeBin, args...)
+		cmd := exec.Command("node", args...)
 		cmd.Dir = *dataDir // dsh 的 cwd
 		cmd.Env = env
 		cmd.Stdout = os.Stdout

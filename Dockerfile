@@ -14,17 +14,14 @@ RUN apt-get update \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-# Node 解压到 /app：dsh-gateway 用绝对路径调用，不进用户 PATH
+# Node 解压到 /usr/local，bin 落在默认 PATH，终端用户也能用
 # node 包名用 x64/arm64，buildx 的 TARGETARCH 是 amd64/arm64，需映射
 ARG TARGETARCH
-RUN mkdir -p /app \
-    && NODE_ARCH=$( [ "${TARGETARCH:-amd64}" = "amd64" ] && echo x64 || echo "${TARGETARCH:-amd64}" ) \
+RUN NODE_ARCH=$( [ "${TARGETARCH:-amd64}" = "amd64" ] && echo x64 || echo "${TARGETARCH:-amd64}" ) \
     && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
-        | tar -xJ -C /app --strip-components=1
+        | tar -xJ -C /usr/local --strip-components=1
 
-# 构建期冒烟验证；npm 是 env 脚本（#!/usr/bin/env node），临时 PATH 补上 /app/bin
-RUN export PATH=/app/bin:$PATH \
-    && /app/bin/node --version && /app/bin/npm --version
+RUN node --version && npm --version
 
 # 阶段 1：安装 dsh（node-pty 需要编译工具链）
 FROM nodebase AS build
@@ -38,9 +35,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# npm 全局装到 /app（与 node 同根），dsh 与 node 都独立在 /app，不进用户 PATH
-RUN export PATH=/app/bin:$PATH \
-    && /app/bin/npm install -g --prefix /app --no-audit --no-fund --registry=${NPM_REGISTRY} @deepseek-ai/dsh@${DSH_VERSION}
+# npm 全局安装到 /usr/local，运行时 COPY 路径稳定
+RUN npm install -g --no-audit --no-fund --registry=${NPM_REGISTRY} @deepseek-ai/dsh@${DSH_VERSION}
 
 # 阶段 2：编译 dsh-gateway（静态二进制）
 FROM golang:1.26-alpine AS gateway-build
@@ -62,13 +58,13 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /app /app
-COPY --from=gateway-build /out/dsh-gateway /app/bin/dsh-gateway
+COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=gateway-build /out/dsh-gateway /usr/local/bin/dsh-gateway
 
 # dsh-gateway 直接作 PID 1：内建 dsh 子进程守护与信号转发，无需 shell 脚本和 init
-ENTRYPOINT ["/app/bin/dsh-gateway"]
+ENTRYPOINT ["/usr/local/bin/dsh-gateway"]
 # 容器内接线（与 compose 的 ports/volume 配套）：0.0.0.0 绑定是 bridge 端口发布的前提；CMD 需单行
-CMD ["-listen", "0.0.0.0:8080", "-tls-listen", "0.0.0.0:8443", "-backend", "http://127.0.0.1:3080", "-node-bin", "/app/bin/node", "-dsh-bin", "/app/lib/node_modules/@deepseek-ai/dsh/lib/bin.js", "-data-dir", "/root"]
+CMD ["-listen", "0.0.0.0:8080", "-tls-listen", "0.0.0.0:8443", "-backend", "http://127.0.0.1:3080", "-dsh-bin", "/usr/local/lib/node_modules/@deepseek-ai/dsh/lib/bin.js", "-data-dir", "/root"]
 
 VOLUME /root
 EXPOSE 8080 8443
