@@ -11,9 +11,9 @@ permissions:
   packages: write   # 推送 GHCR
   actions: read     # build-push-action 的 gha 缓存
 
-# 连续 push 或 push 撞上定时任务时取消旧构建，避免并发重复构建
+# 定时任务与 push 分开成组：被延迟执行的定时构建不会取消刚推送触发的构建
 concurrency:
-  group: dsh-auth-build
+  group: dsh-gateway-build-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
