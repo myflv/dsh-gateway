@@ -46,10 +46,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# 自装软件统一 /opt（与 nvm、dsh-gateway 并列），npm 全局 prefix 固定为 /opt，
+# 自装软件统一 /opt（与 nvm、dsh-gateway 并列），npm 全局根固定 /opt/node，
 # 运行时 COPY 路径稳定；pnpm 是 dsh plugin（profile 插件管理，转发 pnpm）的前置
-RUN npm install -g --prefix /opt --no-audit --no-fund --registry=${NPM_REGISTRY} @deepseek-ai/dsh@${DSH_VERSION} \
-    && npm install -g --prefix /opt --no-audit --no-fund pnpm
+RUN npm install -g --prefix /opt/node --no-audit --no-fund --registry=${NPM_REGISTRY} @deepseek-ai/dsh@${DSH_VERSION} \
+    && npm install -g --prefix /opt/node --no-audit --no-fund pnpm
 
 # 阶段 2：编译 dsh-gateway（静态二进制）
 FROM golang:1.26-alpine AS gateway-build
@@ -66,25 +66,25 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/dsh-gateway .
 # 阶段 3：运行时（纯 Debian，可继续 apt 装软件）
 FROM nodebase AS runtime
 
-# /opt/bin 进 PATH：docker exec 与网关 spawn 的子进程（继承容器 ENV）
-ENV PATH=/opt/bin:${PATH}
+# /opt/node/bin 进 PATH：docker exec 与网关 spawn 的子进程（继承容器 ENV）
+ENV PATH=/opt/node/bin:${PATH}
 
 # ssh 登录 shell 不继承镜像 ENV，profile.d 注入（与 nvm.sh 并列）
-RUN printf 'export PATH=/opt/bin:$PATH\n' > /etc/profile.d/dsh-path.sh
+RUN printf 'export PATH=/opt/node/bin:$PATH\n' > /etc/profile.d/dsh-path.sh
 
 # 要额外装的软件加在这一行
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /opt/lib/node_modules /opt/lib/node_modules
-# npm 全局包的 bin 链接（dsh、pnpm）在 /opt/bin，漏拷则容器内 dsh 命令缺失
-COPY --from=build /opt/bin /opt/bin
+COPY --from=build /opt/node/lib/node_modules /opt/node/lib/node_modules
+# npm 全局包的 bin 链接（dsh、pnpm）在 /opt/node/bin，漏拷则容器内 dsh 命令缺失
+COPY --from=build /opt/node/bin /opt/node/bin
 COPY --from=gateway-build /out/dsh-gateway /opt/dsh-gateway
 
 # dsh-gateway 直接作 PID 1：内建 dsh 子进程守护与信号转发，无需 shell 脚本和 init
 ENTRYPOINT ["/opt/dsh-gateway"]
 # 容器内接线（与 compose 的 ports 配套）：只列与默认值不同的参数；0.0.0.0 绑定是 bridge 端口发布的前提
-CMD ["-listen", "0.0.0.0:8080", "-tls-listen", "0.0.0.0:8443", "-dsh-bin", "/opt/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"]
+CMD ["-listen", "0.0.0.0:8080", "-tls-listen", "0.0.0.0:8443", "-dsh-bin", "/opt/node/lib/node_modules/@deepseek-ai/dsh/lib/bin.js"]
 
 EXPOSE 8080 8443
