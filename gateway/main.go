@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -102,25 +101,19 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 		port = "80"
 	}
 	args := []string{*dshBin, "web", "--host", host, "--port", port}
-	// 配置目录固定为工作区下的 .dsh/（标准布局：工作区根目录放项目文件，.dsh/ 放配置）
-	dshHome := filepath.Join(*workDir, ".dsh")
+	// 配置目录 = $HOME/.dsh：容器内 HOME=/root=工作区，用 dsh 原生默认即可，无需 DSH_HOME 覆盖
 	if err := os.MkdirAll(*workDir, 0o755); err != nil {
 		log.Fatalf("创建工作目录失败: %v", err)
 	}
-	if err := os.MkdirAll(dshHome, 0o755); err != nil {
-		log.Fatalf("创建配置目录失败: %v", err)
-	}
-	log.Printf("工作区: %s，配置目录: %s", *workDir, dshHome)
+	home, _ := os.UserHomeDir()
+	log.Printf("工作区: %s，配置目录: %s/.dsh", *workDir, home)
 
-	// dsh 配置目录用官方 DSH_HOME 指定（默认才是 ~/.dsh），HOME 保持用户原样（ssh/nvm/bashrc 全走 /root）
-	// os/exec 对重复键保留最后一个，追加的 DSH_HOME 优先
-	env := append(os.Environ(), "DSH_HOME="+dshHome)
-
+	// dsh 配置目录用官方原生默认 $HOME/.dsh（容器内 HOME=/root=工作区，与 <work-dir>/.dsh 一致），
+	// ssh/nvm/bashrc 全走 HOME=/root，无需覆盖环境变量
 	for {
 		log.Printf("启动 dsh web (%s:%s) ...", host, port)
 		cmd := exec.Command("node", args...)
 		cmd.Dir = *workDir // dsh 的 cwd：工作区根目录（ssh 走 HOME=/root/.ssh，不受 cwd 影响）
-		cmd.Env = env
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
