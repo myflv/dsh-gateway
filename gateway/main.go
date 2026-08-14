@@ -64,6 +64,9 @@ func main() {
 
 	// 认证边界在 requireAuth 内：数据面与页面导航需会话，浏览器资源请求公开
 	mux.Handle(homePath, requireAuth(proxyHandler(backendURL)))
+	// 信任插件 bundle：具体 pattern 优先于 catch-all；浏览器 boot 拉取时已带
+	// 登录 cookie，与会话一致（与 /plugins 数据面同策略）
+	mux.Handle(trustPluginPath, requireAuth(http.HandlerFunc(serveTrustPlugin)))
 
 	log.Printf("认证用户: %s", user)
 	log.Printf("listening on %s -> %s", *listen, *backend)
