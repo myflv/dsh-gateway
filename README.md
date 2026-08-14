@@ -18,7 +18,7 @@ docker compose up -d
 |---|---|
 | `AUTH_USER` / `AUTH_PASSWORD` | 登录用户名/密码，不填启动报错 |
 | `ports` | `8080` 认证入口（http），`8443` 自签 HTTPS（证书只含 localhost/127.0.0.1，供本机/调试） |
-| `./data` → `/root` | 唯一的持久化点：dsh 的配置、会话、日志全在里面（`/root/.dsh`、`/root/.ssh` 等），删掉重来 |
+| `./workspace` → `/root` | 唯一的持久化点：dsh 的配置、会话、日志全在里面（`/root/.dsh`、`/root/.ssh` 等），删掉重来 |
 
 公网访问请用 frp + nginx 反代 8080（正式证书，cookie 的 Secure 标志自动适配），不要直接开放端口。
 
