@@ -6,4 +6,3 @@ gateway/dsh-gateway
 .git/
 *.log
 .env
-ssh/

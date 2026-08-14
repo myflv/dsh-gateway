@@ -9,6 +9,5 @@ services:
       - 8080:8080
       - 8443:8443
     volumes:
-      # /root = 工作区（cwd + HOME，dsh 配置派生 /root/.dsh），删掉 ./workspace 重来
+      # /root = 工作区（cwd + HOME，dsh 配置 /root/.dsh、ssh 密钥 /root/.ssh 都在卷里），删掉 ./workspace 重来
       - ./workspace:/root
-      - ./ssh:/root/.ssh

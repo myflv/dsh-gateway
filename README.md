@@ -18,8 +18,7 @@ docker compose up -d
 |---|---|
 | `AUTH_USER` / `AUTH_PASSWORD` | 登录用户名/密码，不填启动报错 |
 | `ports` | `8080` 认证入口（http），`8443` 自签 HTTPS（证书只含 localhost/127.0.0.1，供本机/调试） |
-| `./workspace` → `/root` | dsh 工作区（cwd + HOME，新建会话默认落在这里）+ 配置（`/root/.dsh`：settings、凭据、profiles），删掉重来 |
-| `./ssh` → `/root/.ssh` | ssh 密钥（放你的 id_ed25519 等，权限 600） |
+| `./workspace` → `/root` | dsh 工作区（cwd + HOME，新建会话默认落在这里）+ 配置（`/root/.dsh`：settings、凭据、profiles）+ ssh 密钥（`/root/.ssh`，放 id_ed25519 等，权限 600），删掉重来 |
 
 工作目录就是 `/root`（挂载的 `./workspace`），Web UI 直接 Continue 即可，无需手动选工作区（目录选择器默认也从 `/root` 开始）。
 
