@@ -1,4 +1,4 @@
-# 多阶段构建：Node+dsh 安装（带编译工具链） → Go 编译 → 精简运行时（纯 Debian，可 apt 装软件）
+# 多阶段构建：Node+dsh（含编译工具链） → Go 编译 → 运行时（继承工具链，可继续 apt 装软件）
 
 # 阶段 0：Node 基座（纯 Debian + nvm 管理的 Node，系统与终端用户共用同一套）
 FROM debian:bookworm-slim AS nodebase
@@ -7,12 +7,17 @@ ARG NVM_VERSION=0.40.3
 ARG NVM_NODE_VERSION=26.7.0
 
 # libatomic1 是 Node 官方二进制的依赖
+# python3/make/g++ 编译工具链：装 dsh 的 node-pty 需要，且运行时装原生模块
+# 插件（node-pty 类）也要——留在最终镜像，避免"运行时装不了原生插件"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         libatomic1 \
         xz-utils \
+        python3 \
+        make \
+        g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # nvm 装 /opt/nvm（/root 是工作区卷挂载点，放 /root/.nvm 会被卷遮蔽丢 node）
@@ -34,17 +39,12 @@ EOF
 
 RUN node --version && npm --version
 
-# 阶段 1：安装 dsh（node-pty 需要编译工具链）
+# 阶段 1：安装 dsh（工具链已在 nodebase，node-pty 直接编译）
 FROM nodebase AS build
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
 # CI 以 --build-arg 覆盖
 ARG DSH_VERSION=0.1.0-rc.6
-
-# node-pty 是原生模块，安装时需要编译工具链
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
-    && rm -rf /var/lib/apt/lists/*
 
 # 自装软件统一 /opt（与 nvm、dsh-gateway 并列），npm 全局根固定 /opt/node，
 # 运行时 COPY 路径稳定；pnpm 是 dsh plugin（profile 插件管理，转发 pnpm）的前置
@@ -63,7 +63,7 @@ COPY gateway/ ./
 # 静态编译（CGO_ENABLED=0），运行时零 glibc 依赖
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/dsh-gateway .
 
-# 阶段 3：运行时（纯 Debian，可继续 apt 装软件）
+# 阶段 3：运行时（继承 nodebase 的编译工具链，可继续 apt 装软件）
 FROM nodebase AS runtime
 
 # /opt/node/bin 进 PATH：docker exec 与网关 spawn 的子进程（继承容器 ENV）
