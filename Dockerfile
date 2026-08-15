@@ -1,4 +1,4 @@
-# 多阶段构建：Node+dsh（含编译工具链） → Go 编译 → 运行时（继承工具链，可继续 apt 装软件）
+# 多阶段构建：Node+dsh（含编译工具链） → Go 编译 → 运行时
 
 # 阶段 0：Node 基座（纯 Debian + nvm 管理的 Node，系统与终端用户共用同一套）
 FROM debian:bookworm-slim AS nodebase
@@ -7,17 +7,12 @@ ARG NVM_VERSION=0.40.3
 ARG NVM_NODE_VERSION=26.7.0
 
 # libatomic1 是 Node 官方二进制的依赖
-# python3/make/g++ 编译工具链：装 dsh 的 node-pty 需要，且运行时装原生模块
-# 插件（node-pty 类）也要——留在最终镜像，避免"运行时装不了原生插件"
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
         libatomic1 \
         xz-utils \
-        python3 \
-        make \
-        g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # nvm 装 /opt/nvm（/root 是工作区卷挂载点，放 /root/.nvm 会被卷遮蔽丢 node）
@@ -38,6 +33,12 @@ RUN cat >> /etc/bash.bashrc <<'EOF'
 EOF
 
 RUN node --version && npm --version
+
+# python3/make/g++（node-gyp 最小集）：装 dsh 的 node-pty 与运行时装原生插件都要。
+# 独立层且放在 Node 安装之后：将来加包只重建本层及下游，Node 下载层保持缓存
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 # 阶段 1：安装 dsh（工具链已在 nodebase，node-pty 直接编译）
 FROM nodebase AS build
