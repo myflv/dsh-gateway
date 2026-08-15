@@ -34,10 +34,11 @@ EOF
 
 RUN node --version && npm --version
 
-# python3/make/g++（node-gyp 最小集）：装 dsh 的 node-pty 与运行时装原生插件都要。
+# python3/python3-venv/make/g++（node-gyp + python venv 运行时最小集）：装 dsh 的
+# node-pty、运行时装原生插件、以及 python 型插件（如 vision-toolkit 建 venv）都要。
 # 独立层且放在 Node 安装之后：将来加包只重建本层及下游，Node 下载层保持缓存
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 make g++ \
+    && apt-get install -y --no-install-recommends python3 python3-venv make g++ \
     && rm -rf /var/lib/apt/lists/*
 
 # 阶段 1：安装 dsh（工具链已在 nodebase，node-pty 直接编译）
