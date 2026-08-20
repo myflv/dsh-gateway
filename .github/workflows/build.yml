@@ -25,10 +25,9 @@ jobs:
       - name: 检查 dsh 最新版本（以 GitHub release 为准，npm latest 会滞后）
         id: check
         run: |
-          # 纯 prerelease 仓库没有 releases/latest（404），列出全部取最大 semver
-          TAGS=$(curl -fsS "https://api.github.com/repos/deepseek-ai/deepseek-harness/releases?per_page=50" \
-            | jq -r '.[].tag_name | select(startswith("dsh-v")) | sub("^dsh-v";"")')
-          NEW=$(printf '%s\n' "$TAGS" | sort -V | tail -1)
+          # 纯 prerelease 仓库没有 releases/latest（404）；列表按发布时间倒序，第一条即最新，取标题剥 v 前缀
+          NEW=$(curl -fsS "https://api.github.com/repos/deepseek-ai/deepseek-harness/releases?per_page=1" \
+            | jq -r '.[0].name | sub("^v";"")')
           case "$NEW" in
             [0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "版本解析失败: $NEW"; exit 1 ;;
