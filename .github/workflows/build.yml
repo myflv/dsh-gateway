@@ -22,15 +22,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 检查 dsh 最新版本
+      - name: 检查 dsh 最新版本（以 GitHub release 为准，npm latest 会滞后）
         id: check
         run: |
-          NEW=$(curl -fsS https://registry.npmjs.org/@deepseek-ai/dsh/latest | jq -r .version)
+          # 纯 prerelease 仓库没有 releases/latest（404），列出全部取最大 semver
+          TAGS=$(curl -fsS "https://api.github.com/repos/deepseek-ai/deepseek-harness/releases?per_page=50" \
+            | jq -r '.[].tag_name | select(startswith("dsh-v")) | sub("^dsh-v";"")')
+          NEW=$(printf '%s\n' "$TAGS" | sort -V | tail -1)
           case "$NEW" in
             [0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "版本解析失败: $NEW"; exit 1 ;;
           esac
           echo "dsh_version=$NEW" >> "$GITHUB_OUTPUT"
+          # GitHub 发版可能早于 npm 发布：npm 上没有就等下次定时任务，避免安装失败
+          if ! curl -fsS "https://registry.npmjs.org/@deepseek-ai/dsh/$NEW" >/dev/null 2>&1; then
+            echo "版本 $NEW 尚未发布到 npm，跳过"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
           # 定时触发且该版本镜像已存在 -> 跳过；代码变更或手动触发 -> 总是构建
           if [ "${{ github.event_name }}" = "schedule" ] \
             && docker manifest inspect "ghcr.io/${{ github.repository }}:$NEW" >/dev/null 2>&1; then

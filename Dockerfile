@@ -46,7 +46,7 @@ FROM nodebase AS build
 
 ARG NPM_REGISTRY=https://registry.npmjs.org
 # CI 以 --build-arg 覆盖
-ARG DSH_VERSION=0.1.0-rc.6
+ARG DSH_VERSION=0.1.0-rc.8
 
 # 自装软件统一 /opt（与 nvm、dsh-gateway 并列），npm 全局根固定 /opt/node，
 # 运行时 COPY 路径稳定；pnpm 是 dsh plugin（profile 插件管理，转发 pnpm）的前置
