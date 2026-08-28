@@ -256,11 +256,17 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 // 认证中间件：数据面（/api、/plugins）与页面导航请求需会话，否则 302 登录页。
-// 浏览器资源请求（manifest/favicon/script 等，Sec-Fetch-Mode 非 navigate）公开——它们不带 cookie 也能加载，无需维护资源名单
+// 浏览器资源请求公开——它们不带 cookie 也能加载，无需维护资源名单。
+// 注意 ES module 脚本（<script type="module">）的 Sec-Fetch-Mode 也是 "navigate"
+// （标准行为），须用 Sec-Fetch-Dest 区分：script/style/empty 是资源公开放行，
+// 其余（document/iframe/embed）才算页面导航。2026-08 事故：无会话时壳资源被误拦，
+// 浏览器把登录页 HTML 当 JS 执行，报 "HTML did not preload" 一类的迷之错误。
 func requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dataPlane := strings.HasPrefix(r.URL.Path, apiPrefix) || strings.HasPrefix(r.URL.Path, pluginsPrefix)
-		if dataPlane || r.Header.Get("Sec-Fetch-Mode") == "navigate" {
+		mode, dest := r.Header.Get("Sec-Fetch-Mode"), r.Header.Get("Sec-Fetch-Dest")
+		isNav := mode == "navigate" && dest != "script" && dest != "style" && dest != "empty"
+		if dataPlane || isNav {
 			if c, err := r.Cookie(cookieName); err == nil && validSession(c.Value) {
 				next.ServeHTTP(w, r)
 				return
