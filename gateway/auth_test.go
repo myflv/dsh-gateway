@@ -6,9 +6,11 @@ import (
 	"testing"
 )
 
-// requireAuth 的 Sec-Fetch 判定：ES module 脚本（Sec-Fetch-Mode=navigate +
-// Sec-Fetch-Dest=script）是资源，须公开放行；document 导航须会话。
-// 2026-08 事故：无会话时壳资源被误拦，浏览器把登录页 HTML 当 JS 执行。
+// requireAuth 的 Sec-Fetch 判定：默认需会话，只有明确带资源模式头的请求公开。
+// 1) ES module 脚本（navigate+script）是资源须公开——否则浏览器把登录页 HTML
+//    当 JS 执行（2026-08 事故一）；
+// 2) 无 Sec-Fetch 头（非浏览器环境）须走登录页——否则未登录用户拿到壳却拿不到
+//    bundle，困在 "Failed to load plugins" 死局（2026-08 事故二）。
 func TestRequireAuthSecFetchDest(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -21,9 +23,11 @@ func TestRequireAuthSecFetchDest(t *testing.T) {
 		{"样式表", "no-cors", "style", true},
 		{"经典脚本", "no-cors", "script", true},
 		{"fetch API", "cors", "empty", true},
-		{"无 Sec-Fetch 头（curl）", "", "", true},
+		{"无 Sec-Fetch 头（curl/降级）", "", "", false},
 		{"iframe 导航", "navigate", "iframe", false},
 		{"manifest", "no-cors", "manifest", true},
+		{"favicon", "no-cors", "image", true},
+		{"navigate 无 dest（旧形态导航）", "navigate", "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
