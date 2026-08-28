@@ -7,13 +7,13 @@ import (
 	"testing"
 )
 
-// 模拟 host injectBootManifest 的真实产物（< 转义为 <）
+// 模拟 host 的真实产物：0.1.2 起 __DSH_BOOT__ 带 batches（< 转义为 <），旧版无此键
 func sampleShellHTML() []byte {
 	return []byte(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<script>window.__DSH_BOOT__ = {"rev":"rev-abc","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true},{"id":"@deepseek-ai/dsh-client-ui-settings","url":"/plugins/@deepseek-ai/dsh-client-ui-settings/client.js?rev=r2","rev":"r2","inject":[],"immediately":true}]}</script>
+<script>window.__DSH_BOOT__ = {"rev":"rev-abc","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true},{"id":"@deepseek-ai/dsh-client-ui-settings","url":"/plugins/@deepseek-ai/dsh-client-ui-settings/client.js?rev=r2","rev":"r2","inject":[],"immediately":true}],"batches":[{"phase":"application","url":"/plugins/??@deepseek-ai/dsh-client-connection/client.js,@deepseek-ai/dsh-client-ui-settings/client.js&rev=r1","rev":"r1","entries":["@deepseek-ai/dsh-client-connection","@deepseek-ai/dsh-client-ui-settings"]}]}</script>
 <link rel="stylesheet" href="/assets/index.css">
 </head>
 <body><div id="root"></div><script type="module" src="/assets/index.js"></script></body>
@@ -81,12 +81,43 @@ func TestInjectBootManifestEntry(t *testing.T) {
 	if ids[2] != trustPluginID {
 		t.Fatalf("注入条目 id 应为 %s，实际 %s", trustPluginID, ids[2])
 	}
+	// 0.1.2 起每个 entry 必须归属一个 batch（parseBootManifest 校验），
+	// 原 host batch 须原样保留，注入的信任插件条目须获得自己的 batch
+	batches := batchDescriptors(t, graph)
+	if len(batches) != 2 {
+		t.Fatalf("应有 2 个 batch（原 1 + 注入 1），实际 %d: %v", len(batches), batches)
+	}
+	hostBatch := batches[0]
+	if string(hostBatch["phase"]) != `"application"` ||
+		!strings.Contains(string(hostBatch["url"]), "@deepseek-ai/dsh-client-connection") {
+		t.Fatalf("原 host batch 被破坏: %v", hostBatch)
+	}
+	trustBatch := batches[1]
+	if string(trustBatch["phase"]) != `"application"` {
+		t.Fatalf("信任插件 batch phase 应为 application: %s", trustBatch["phase"])
+	}
+	if string(trustBatch["url"]) != `"/plugins/dsh-gateway-trust/client.js?rev=1"` {
+		t.Fatalf("信任插件 batch url 与 entry url 不一致: %s", trustBatch["url"])
+	}
+	if string(trustBatch["entries"]) != `["dsh-gateway-trust"]` {
+		t.Fatalf("信任插件 batch entries 应为自身 id: %s", trustBatch["entries"])
+	}
 	// 页面其余结构原样保留
 	for _, marker := range []string{"<link rel=\"stylesheet\"", "<div id=\"root\">", "<!doctype html>", "<head>"} {
 		if !bytes.Contains(patched, []byte(marker)) {
 			t.Fatalf("页面结构被破坏，缺少 %q", marker)
 		}
 	}
+}
+
+// 从改写后的 html 提取 batches 数组
+func batchDescriptors(t *testing.T, graph map[string]json.RawMessage) []map[string]json.RawMessage {
+	t.Helper()
+	var batches []map[string]json.RawMessage
+	if err := json.Unmarshal(graph["batches"], &batches); err != nil {
+		t.Fatalf("batches 解析失败: %v", err)
+	}
+	return batches
 }
 
 func TestInjectNoMarkerPassesThrough(t *testing.T) {
@@ -119,6 +150,30 @@ func TestInjectIdempotent(t *testing.T) {
 	if ids := entryIDs(t, graph); len(ids) != 3 {
 		t.Fatalf("重复注入导致条目数异常: %d", len(ids))
 	}
+	if batches := batchDescriptors(t, graph); len(batches) != 2 {
+		t.Fatalf("重复注入导致 batch 数异常: %d", len(batches))
+	}
+}
+
+// 旧版 dsh（rc.8 及之前）的图无 batches 键：注入照常工作；
+// 我们的 batch 对旧 host 无害（其解析与加载都忽略该字段），对 0.1.2+ 则是必需项
+func TestInjectLegacyGraphWithoutBatches(t *testing.T) {
+	html := []byte(`<script>window.__DSH_BOOT__ = {"rev":"rev-abc","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true}]}</script>`)
+	patched, changed, err := injectBootManifestEntry(html)
+	if err != nil {
+		t.Fatalf("旧版图注入报错: %v", err)
+	}
+	if !changed {
+		t.Fatal("旧版图应发生改写")
+	}
+	graph := extractBootJSON(t, patched)
+	if ids := entryIDs(t, graph); len(ids) != 2 {
+		t.Fatalf("旧版图注入后应有 2 个条目: %d", len(ids))
+	}
+	batches := batchDescriptors(t, graph)
+	if len(batches) != 1 || string(batches[0]["url"]) != `"/plugins/dsh-gateway-trust/client.js?rev=1"` {
+		t.Fatalf("旧版图应恰好注入信任插件自己的 batch: %v", batches)
+	}
 }
 
 func TestInjectMalformedFailsLoud(t *testing.T) {
@@ -147,6 +202,36 @@ func TestBootEntryWireShape(t *testing.T) {
 	}
 	if string(entry["immediately"]) != "true" {
 		t.Fatalf("immediately 应为 true: %s", entry["immediately"])
+	}
+}
+
+func TestBootBatchWireShape(t *testing.T) {
+	// wire 形态须过新 host 的 parseBootManifest batch 校验（phase 枚举、url/rev 字符串、entries 非空且都存在）
+	var batch map[string]json.RawMessage
+	if err := json.Unmarshal(trustBootBatchJSON, &batch); err != nil {
+		t.Fatalf("boot batch 不是合法 JSON: %v", err)
+	}
+	if string(batch["phase"]) != `"application"` {
+		t.Fatalf("phase 应为 application: %s", batch["phase"])
+	}
+	for _, field := range []string{"url", "rev"} {
+		if !strings.HasPrefix(string(batch[field]), `"`) {
+			t.Fatalf("%s 应为 string: %s", field, batch[field])
+		}
+	}
+	var entry map[string]json.RawMessage
+	if err := json.Unmarshal(trustBootEntryJSON, &entry); err != nil {
+		t.Fatalf("boot 条目解析失败: %v", err)
+	}
+	if !bytes.Equal(batch["url"], entry["url"]) {
+		t.Fatalf("batch url 应等于 entry url（同一 bundle 端点）: %s", batch["url"])
+	}
+	var entries []string
+	if err := json.Unmarshal(batch["entries"], &entries); err != nil {
+		t.Fatalf("entries 解析失败: %v", err)
+	}
+	if len(entries) != 1 || entries[0] != trustPluginID {
+		t.Fatalf("entries 应恰好含自身 id: %v", entries)
 	}
 }
 

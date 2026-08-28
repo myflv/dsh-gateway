@@ -28,10 +28,36 @@ type bootEntry struct {
 	Immediately bool     `json:"immediately"`
 }
 
+// 0.1.2 起 graph 增加 batches 数组：每个 entry 必须归属恰好一个 initial-load
+// batch（combo 脚本调度描述），否则 parseBootManifest 抛
+// "belongs to no initial-load batch"，整个应用无法 boot。
+// 本插件是网关注入的伪 row，host 的 compose() 不会为它生成 batch，须一并注入。
+type bootBatch struct {
+	Phase   string   `json:"phase"`
+	URL     string   `json:"url"`
+	Rev     string   `json:"rev"`
+	Entries []string `json:"entries"`
+}
+
 var trustBootEntryJSON = func() []byte {
 	out, err := json.Marshal(bootEntry{ID: trustPluginID, URL: trustPluginPath + "?rev=" + trustPluginRev, Rev: trustPluginRev, Inject: []string{"connection"}, Immediately: true})
 	if err != nil {
 		panic(err) // 纯字符串/布尔 struct，Marshal 不会失败
+	}
+	return out
+}()
+
+// 与既有应用插件同走 application 调度（预加载，模块系统按需执行），
+// 不用 bootstrap（那会在壳启动前以阻塞脚本执行，行为路径与旧版不同）
+var trustBootBatchJSON = func() []byte {
+	out, err := json.Marshal(bootBatch{
+		Phase:   "application",
+		URL:     trustPluginPath + "?rev=" + trustPluginRev,
+		Rev:     trustPluginRev,
+		Entries: []string{trustPluginID},
+	})
+	if err != nil {
+		panic(err)
 	}
 	return out
 }()
@@ -59,6 +85,7 @@ func injectBootManifestEntry(html []byte) ([]byte, bool, error) {
 	var graph struct {
 		Rev     string            `json:"rev"`
 		Entries []json.RawMessage `json:"entries"`
+		Batches []json.RawMessage `json:"batches,omitempty"` // 新版必填；旧版 host 无此键，omitempty 保持图形态不漂移
 	}
 	if err := json.Unmarshal(html[start:end], &graph); err != nil {
 		return nil, false, fmt.Errorf("dsh-gateway: 解析 __DSH_BOOT__ 失败（dsh 版本漂移？）: %w", err)
@@ -74,6 +101,7 @@ func injectBootManifestEntry(html []byte) ([]byte, bool, error) {
 	}
 
 	graph.Entries = append(graph.Entries, trustBootEntryJSON)
+	graph.Batches = append(graph.Batches, trustBootBatchJSON) // 与 entry 同进同出，保持新旧 host 一致可解析
 	out, err := json.Marshal(graph) // SetEscapeHTML 默认开启，转义与 host 注入一致
 	if err != nil {
 		return nil, false, fmt.Errorf("dsh-gateway: 重写 __DSH_BOOT__ 失败: %w", err)
