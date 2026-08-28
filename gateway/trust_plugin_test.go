@@ -7,27 +7,33 @@ import (
 	"testing"
 )
 
-// 模拟 host 的真实产物：0.1.2 起 __DSH_BOOT__ 带 batches（< 转义为 <），旧版无此键
+// 模拟 host 的真实产物：rc.2 起注入行形态为 globalThis["__DSH_BOOT__"]（< 转义为 <），
+// 0.1.2 起 graph 带 batches
 func sampleShellHTML() []byte {
 	return []byte(`<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<script>window.__DSH_BOOT__ = {"rev":"rev-abc","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true},{"id":"@deepseek-ai/dsh-client-ui-settings","url":"/plugins/@deepseek-ai/dsh-client-ui-settings/client.js?rev=r2","rev":"r2","inject":[],"immediately":true}],"batches":[{"phase":"application","url":"/plugins/??@deepseek-ai/dsh-client-connection/client.js,@deepseek-ai/dsh-client-ui-settings/client.js&rev=r1","rev":"r1","entries":["@deepseek-ai/dsh-client-connection","@deepseek-ai/dsh-client-ui-settings"]}]}</script>
+<script>globalThis["__DSH_BOOT__"] = {"rev":"rev-abc","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true},{"id":"@deepseek-ai/dsh-client-ui-settings","url":"/plugins/@deepseek-ai/dsh-client-ui-settings/client.js?rev=r2","rev":"r2","inject":[],"immediately":true}],"batches":[{"phase":"application","url":"/plugins/??@deepseek-ai/dsh-client-connection/client.js,@deepseek-ai/dsh-client-ui-settings/client.js&rev=r1","rev":"r1","entries":["@deepseek-ai/dsh-client-connection","@deepseek-ai/dsh-client-ui-settings"]}]}</script>
 <link rel="stylesheet" href="/assets/index.css">
 </head>
 <body><div id="root"></div><script type="module" src="/assets/index.js"></script></body>
 </html>`)
 }
 
+// 旧版（rc.8 及之前）的注入行形态与无 batches 的图
+func legacyShellHTML() []byte {
+	return []byte(`<script>window.__DSH_BOOT__ = {"rev":"rev-legacy","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true}]}</script>`)
+}
+
 // 从改写后的 html 提取 __DSH_BOOT__ 的 JSON 部分
 func extractBootJSON(t *testing.T, html []byte) map[string]json.RawMessage {
 	t.Helper()
-	i := bytes.Index(html, []byte(bootMarker))
+	i, marker := findBootMarker(html)
 	if i == -1 {
-		t.Fatalf("改写后 html 丢失 %q", bootMarker)
+		t.Fatalf("改写后 html 丢失 boot marker")
 	}
-	start := i + len(bootMarker)
+	start := i + len(marker)
 	end := bytes.Index(html[start:], []byte("</script>"))
 	if end == -1 {
 		t.Fatal("改写后 html 丢失 </script>")
@@ -155,11 +161,10 @@ func TestInjectIdempotent(t *testing.T) {
 	}
 }
 
-// 旧版 dsh（rc.8 及之前）的图无 batches 键：注入照常工作；
-// 我们的 batch 对旧 host 无害（其解析与加载都忽略该字段），对 0.1.2+ 则是必需项
-func TestInjectLegacyGraphWithoutBatches(t *testing.T) {
-	html := []byte(`<script>window.__DSH_BOOT__ = {"rev":"rev-abc","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true}]}</script>`)
-	patched, changed, err := injectBootManifestEntry(html)
+// 旧版 dsh（rc.8 及之前）的注入行形态 window.__DSH_BOOT__ 且图无 batches：
+// 注入照常工作；我们的 batch 对旧 host 无害（其解析与加载都忽略该字段）
+func TestInjectLegacyMarkerAndGraph(t *testing.T) {
+	patched, changed, err := injectBootManifestEntry(legacyShellHTML())
 	if err != nil {
 		t.Fatalf("旧版图注入报错: %v", err)
 	}
@@ -167,6 +172,9 @@ func TestInjectLegacyGraphWithoutBatches(t *testing.T) {
 		t.Fatal("旧版图应发生改写")
 	}
 	graph := extractBootJSON(t, patched)
+	if string(graph["rev"]) != `"rev-legacy"` {
+		t.Fatalf("旧版 rev 被破坏: %s", graph["rev"])
+	}
 	if ids := entryIDs(t, graph); len(ids) != 2 {
 		t.Fatalf("旧版图注入后应有 2 个条目: %d", len(ids))
 	}

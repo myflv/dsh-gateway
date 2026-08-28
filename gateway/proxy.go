@@ -51,6 +51,10 @@ func proxyHandler(backend *url.URL) http.Handler {
 			resp.Header.Set("Content-Length", strconv.Itoa(len(patched)))
 			return nil
 		}
+		// 无 marker 的 HTML：静默透传会让信任插件"安静地失效"（2026-08 事故：
+		// rc.2 注入行形态从 window.__DSH_BOOT__ 漂移到 globalThis[...]）。
+		// 这里不打日志的话，版本漂移只有用户打开页面才知道。
+		log.Printf("警告：HTML 页面未找到 boot marker，信任插件未注入: %s", resp.Request.URL.Path)
 		resp.Body = io.NopCloser(bytes.NewReader(body)) // 无标记页面：仅恢复被读的 Body，header 不动
 		return nil
 	}

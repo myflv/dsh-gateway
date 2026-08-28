@@ -62,23 +62,37 @@ var trustBootBatchJSON = func() []byte {
 	return out
 }()
 
-const bootMarker = "window.__DSH_BOOT__ = "
+// host 注入行的实际形态随版本变化：rc.8 是 window.__DSH_BOOT__ = ，
+// rc.2 起改为 globalThis["__DSH_BOOT__"] =（带引号下标）。只守一个形态会
+// 匹配失败并静默透传（无 marker 页面本就不改），插件"安静地失效"——见 2026-08 事故。
+// 形态列表按出现顺序取最先匹配者；JSON 起点 = marker 之后，结束仍为 </script>
+var bootMarkers = [][]byte{
+	[]byte(`window.__DSH_BOOT__ = `),
+	[]byte(`globalThis["__DSH_BOOT__"] = `),
+	[]byte(`window["__DSH_BOOT__"] = `),
+}
 
-var (
-	bootMarkerBytes = []byte(bootMarker)
-	scriptClose     = []byte("</script>")
-)
+var scriptClose = []byte("</script>")
+
+func findBootMarker(html []byte) (int, []byte) {
+	for _, marker := range bootMarkers {
+		if i := bytes.Index(html, marker); i != -1 {
+			return i, marker
+		}
+	}
+	return -1, nil
+}
 
 // 追加信任插件条目到 __DSH_BOOT__；JSON 不合法时返回错误，让代理 502（版本漂移响亮失败）
 func injectBootManifestEntry(html []byte) ([]byte, bool, error) {
-	i := bytes.Index(html, bootMarkerBytes)
+	i, marker := findBootMarker(html)
 	if i == -1 {
 		return html, false, nil
 	}
-	start := i + len(bootMarkerBytes)
+	start := i + len(marker)
 	relEnd := bytes.Index(html[start:], scriptClose)
 	if relEnd == -1 {
-		return nil, false, fmt.Errorf("dsh-gateway: %q 后未找到 </script>，页面结构异常", bootMarker)
+		return nil, false, fmt.Errorf("dsh-gateway: %q 后未找到 </script>，页面结构异常", bootMarkers[0])
 	}
 	end := start + relEnd
 
