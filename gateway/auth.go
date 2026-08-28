@@ -257,19 +257,20 @@ func handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // 认证中间件：数据面（/api、/plugins）与页面导航请求需会话，否则 302 登录页。
 // 浏览器资源请求公开——它们不带 cookie 也能加载，无需维护资源名单。
-// 判定按 Sec-Fetch-Mode 反转：默认（无头或 navigate）需会话，只有明确带资源
-// 模式头（no-cors/cors/same-origin）才公开。两条坑：
+// 判定按 Sec-Fetch 头反转：默认需会话，只有明确是资源请求才公开。两条坑：
 // 1) ES module 脚本的 Sec-Fetch-Mode 也是 "navigate"（标准行为），须用
 //    Sec-Fetch-Dest 区分：script/style/empty 是资源公开放行；
 // 2) 无 Sec-Fetch 头（非浏览器环境/降级）若默认公开，未登录用户会拿到壳
 //    页面却拿不到 bundle，困在 "Failed to load plugins" 死局——必须走登录页。
-// 两次事故（2026-08）。
+// 两次事故（2026-08）。资源判定是黑名单式的（任何非空非 navigate 的 mode 都
+// 算资源模式），新增 fetch 模式会自然落入公开侧，收紧枚举是另一次行为变更。
 func requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dataPlane := strings.HasPrefix(r.URL.Path, apiPrefix) || strings.HasPrefix(r.URL.Path, pluginsPrefix)
 		mode, dest := r.Header.Get("Sec-Fetch-Mode"), r.Header.Get("Sec-Fetch-Dest")
-		isResource := mode != "" && mode != "navigate" || dest == "script" || dest == "style" || dest == "empty"
-		if !dataPlane && isResource {
+		resourceMode := mode != "" && mode != "navigate"
+		resourceDest := dest == "script" || dest == "style" || dest == "empty"
+		if !dataPlane && (resourceMode || resourceDest) {
 			next.ServeHTTP(w, r)
 			return
 		}

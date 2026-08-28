@@ -25,24 +25,21 @@ jobs:
       - name: 检查 dsh 最新版本（以 GitHub release 为准，npm latest 会滞后）
         id: check
         run: |
-          # 纯 prerelease 仓库没有 releases/latest（404）；列表按发布时间倒序。
-          # npm 发布晚于 GitHub release：最新 release 尚未上 npm 时退到列表内
-          # 第一个 npm 可装的版本构建，而不是整个跳过（否则代码修复永远进不了
-          # 镜像）。npm 版本只增不减，选择随列表增长单调前进，新版本上 npm 后
-          # 定时任务自动升级。
-          NEW=""
-          for NAME in $(curl -fsS "https://api.github.com/repos/deepseek-ai/deepseek-harness/releases?per_page=5" \
-            | jq -r '.[].name | sub("^v";"")'); do
-            case "$NAME" in
-              [0-9]*.[0-9]*.[0-9]*) ;;
-              *) continue ;;
-            esac
-            if curl -fsS "https://registry.npmjs.org/@deepseek-ai/dsh/$NAME" >/dev/null 2>&1; then
-              NEW="$NAME"; break
-            fi
-          done
+          # 纯 prerelease 仓库没有 releases/latest（404）。npm 发布晚于 GitHub
+          # release：一次 packument（全部已发布版本）与 release 列表做交集，取
+          # 最新可装版本，而不是整个跳过（否则代码修复永远进不了镜像）。
+          # npm 版本只增不减，选择随列表增长单调前进，新版本上 npm 后定时任务
+          # 自动升级。--max-time 防 registry 慢速时挂起。
+          NEW=$(curl -fsS --max-time 30 "https://registry.npmjs.org/@deepseek-ai/dsh" -o /tmp/dsh-pack.json \
+            && curl -fsS --max-time 30 "https://api.github.com/repos/deepseek-ai/deepseek-harness/releases?per_page=100" \
+              | jq -r --slurpfile pk /tmp/dsh-pack.json '
+                  ($pk[0]["versions"] | keys) as $published
+                  | [ .[] | .name | sub("^v";"")
+                      | select(test("[0-9]+.[0-9]+.[0-9]+"))
+                      | select(. as $v | $published | index($v)) ]
+                  | .[0]')
           if [ -z "$NEW" ]; then
-            echo "最近 5 个 release 均未发布到 npm，跳过"
+            echo "所有 release 均未发布到 npm，跳过"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "dsh_version=$NEW" >> "$GITHUB_OUTPUT"

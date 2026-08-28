@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -26,87 +27,68 @@ func legacyShellHTML() []byte {
 	return []byte(`<script>window.__DSH_BOOT__ = {"rev":"rev-legacy","entries":[{"id":"@deepseek-ai/dsh-client-connection","url":"/plugins/@deepseek-ai/dsh-client-connection/client.js?rev=r1","rev":"r1","immediately":true}]}</script>`)
 }
 
-// 从改写后的 html 提取 __DSH_BOOT__ 的 JSON 部分
-func extractBootJSON(t *testing.T, html []byte) map[string]json.RawMessage {
+// 改写后 __DSH_BOOT__ 的类型化视图（与生产 wire 契约同构，避免 raw-JSON 字符串体操）
+type bootGraphView struct {
+	Rev     string      `json:"rev"`
+	Entries []bootEntry `json:"entries"`
+	Batches []bootBatch `json:"batches"`
+}
+
+func extractBootGraph(t *testing.T, html []byte) bootGraphView {
 	t.Helper()
-	i, marker := findBootMarker(html)
-	if i == -1 {
+	start := findBootMarkerStart(html)
+	if start == -1 {
 		t.Fatalf("改写后 html 丢失 boot marker")
 	}
-	start := i + len(marker)
-	end := bytes.Index(html[start:], []byte("</script>"))
+	end := bytes.Index(html[start:], scriptClose)
 	if end == -1 {
 		t.Fatal("改写后 html 丢失 </script>")
 	}
-	var graph map[string]json.RawMessage
+	var graph bootGraphView
 	if err := json.Unmarshal(html[start:start+end], &graph); err != nil {
 		t.Fatalf("改写后 __DSH_BOOT__ 不是合法 JSON: %v", err)
 	}
 	return graph
 }
 
-func entryIDs(t *testing.T, graph map[string]json.RawMessage) []string {
-	t.Helper()
-	var entries []struct {
-		ID string `json:"id"`
-	}
-	if err := json.Unmarshal(graph["entries"], &entries); err != nil {
-		t.Fatalf("entries 解析失败: %v", err)
-	}
-	ids := make([]string, 0, len(entries))
-	for _, e := range entries {
-		ids = append(ids, e.ID)
-	}
-	return ids
-}
-
 func TestInjectBootManifestEntry(t *testing.T) {
 	html := sampleShellHTML()
-	patched, changed, err := injectBootManifestEntry(html)
+	patched, bootFound, changed, err := injectBootManifestEntry(html)
 	if err != nil {
 		t.Fatalf("注入报错: %v", err)
 	}
-	if !changed {
-		t.Fatal("带清单的页面应发生改写")
+	if !bootFound || !changed {
+		t.Fatal("带清单的页面应识别 marker 并改写")
 	}
 	if len(patched) <= len(html) {
 		t.Fatal("改写后体积应大于原页面")
 	}
 
-	graph := extractBootJSON(t, patched)
-	if string(graph["rev"]) != `"rev-abc"` {
-		t.Fatalf("rev 被破坏: %s", graph["rev"])
+	graph := extractBootGraph(t, patched)
+	if graph.Rev != "rev-abc" {
+		t.Fatalf("rev 被破坏: %s", graph.Rev)
 	}
-	ids := entryIDs(t, graph)
-	if len(ids) != 3 {
-		t.Fatalf("应有 3 个条目（原 2 + 注入 1），实际 %d: %v", len(ids), ids)
+	if len(graph.Entries) != 3 {
+		t.Fatalf("应有 3 个条目（原 2 + 注入 1），实际 %d", len(graph.Entries))
 	}
-	if ids[0] != "@deepseek-ai/dsh-client-connection" || ids[1] != "@deepseek-ai/dsh-client-ui-settings" {
-		t.Fatalf("原条目被破坏: %v", ids)
+	if graph.Entries[0].ID != "@deepseek-ai/dsh-client-connection" || graph.Entries[1].ID != "@deepseek-ai/dsh-client-ui-settings" {
+		t.Fatalf("原条目被破坏: %+v", graph.Entries)
 	}
-	if ids[2] != trustPluginID {
-		t.Fatalf("注入条目 id 应为 %s，实际 %s", trustPluginID, ids[2])
+	wantEntry := bootEntry{ID: trustPluginID, URL: trustPluginURL, Rev: trustPluginRev, Inject: []string{"connection"}, Immediately: true}
+	if !reflect.DeepEqual(graph.Entries[2], wantEntry) {
+		t.Fatalf("注入条目 wire 形态漂移: %+v", graph.Entries[2])
 	}
 	// 0.1.2 起每个 entry 必须归属一个 batch（parseBootManifest 校验），
 	// 原 host batch 须原样保留，注入的信任插件条目须获得自己的 batch
-	batches := batchDescriptors(t, graph)
-	if len(batches) != 2 {
-		t.Fatalf("应有 2 个 batch（原 1 + 注入 1），实际 %d: %v", len(batches), batches)
+	if len(graph.Batches) != 2 {
+		t.Fatalf("应有 2 个 batch（原 1 + 注入 1），实际 %d", len(graph.Batches))
 	}
-	hostBatch := batches[0]
-	if string(hostBatch["phase"]) != `"application"` ||
-		!strings.Contains(string(hostBatch["url"]), "@deepseek-ai/dsh-client-connection") {
-		t.Fatalf("原 host batch 被破坏: %v", hostBatch)
+	if graph.Batches[0].Phase != "application" || !strings.Contains(graph.Batches[0].URL, "@deepseek-ai/dsh-client-connection") {
+		t.Fatalf("原 host batch 被破坏: %+v", graph.Batches[0])
 	}
-	trustBatch := batches[1]
-	if string(trustBatch["phase"]) != `"application"` {
-		t.Fatalf("信任插件 batch phase 应为 application: %s", trustBatch["phase"])
-	}
-	if string(trustBatch["url"]) != `"/plugins/dsh-gateway-trust/client.js?rev=1"` {
-		t.Fatalf("信任插件 batch url 与 entry url 不一致: %s", trustBatch["url"])
-	}
-	if string(trustBatch["entries"]) != `["dsh-gateway-trust"]` {
-		t.Fatalf("信任插件 batch entries 应为自身 id: %s", trustBatch["entries"])
+	wantBatch := bootBatch{Phase: "application", URL: trustPluginURL, Rev: trustPluginRev, Entries: []string{trustPluginID}}
+	if !reflect.DeepEqual(graph.Batches[1], wantBatch) {
+		t.Fatalf("注入 batch wire 形态漂移: %+v", graph.Batches[1])
 	}
 	// 页面其余结构原样保留
 	for _, marker := range []string{"<link rel=\"stylesheet\"", "<div id=\"root\">", "<!doctype html>", "<head>"} {
@@ -116,21 +98,14 @@ func TestInjectBootManifestEntry(t *testing.T) {
 	}
 }
 
-// 从改写后的 html 提取 batches 数组
-func batchDescriptors(t *testing.T, graph map[string]json.RawMessage) []map[string]json.RawMessage {
-	t.Helper()
-	var batches []map[string]json.RawMessage
-	if err := json.Unmarshal(graph["batches"], &batches); err != nil {
-		t.Fatalf("batches 解析失败: %v", err)
-	}
-	return batches
-}
-
 func TestInjectNoMarkerPassesThrough(t *testing.T) {
 	html := []byte("<html><body>普通页面，没有清单</body></html>")
-	patched, changed, err := injectBootManifestEntry(html)
+	patched, bootFound, changed, err := injectBootManifestEntry(html)
 	if err != nil {
 		t.Fatalf("无清单页面不应报错: %v", err)
+	}
+	if bootFound {
+		t.Fatal("无 marker 页面不应声称找到 marker")
 	}
 	if changed {
 		t.Fatal("无清单页面不应改写")
@@ -141,106 +116,80 @@ func TestInjectNoMarkerPassesThrough(t *testing.T) {
 }
 
 func TestInjectIdempotent(t *testing.T) {
-	html, _, err := injectBootManifestEntry(sampleShellHTML())
+	html, _, _, err := injectBootManifestEntry(sampleShellHTML())
 	if err != nil {
 		t.Fatalf("首次注入失败: %v", err)
 	}
-	patched, changed, err := injectBootManifestEntry(html)
+	patched, bootFound, changed, err := injectBootManifestEntry(html)
 	if err != nil {
 		t.Fatalf("二次注入报错: %v", err)
+	}
+	if !bootFound {
+		t.Fatal("二次注入应识别 marker")
 	}
 	if changed {
 		t.Fatal("已注入的页面不应重复注入")
 	}
-	graph := extractBootJSON(t, patched)
-	if ids := entryIDs(t, graph); len(ids) != 3 {
-		t.Fatalf("重复注入导致条目数异常: %d", len(ids))
+	graph := extractBootGraph(t, patched)
+	if len(graph.Entries) != 3 {
+		t.Fatalf("重复注入导致条目数异常: %d", len(graph.Entries))
 	}
-	if batches := batchDescriptors(t, graph); len(batches) != 2 {
-		t.Fatalf("重复注入导致 batch 数异常: %d", len(batches))
+	if len(graph.Batches) != 2 {
+		t.Fatalf("重复注入导致 batch 数异常: %d", len(graph.Batches))
 	}
 }
 
 // 旧版 dsh（rc.8 及之前）的注入行形态 window.__DSH_BOOT__ 且图无 batches：
 // 注入照常工作；我们的 batch 对旧 host 无害（其解析与加载都忽略该字段）
 func TestInjectLegacyMarkerAndGraph(t *testing.T) {
-	patched, changed, err := injectBootManifestEntry(legacyShellHTML())
+	patched, bootFound, changed, err := injectBootManifestEntry(legacyShellHTML())
 	if err != nil {
 		t.Fatalf("旧版图注入报错: %v", err)
 	}
-	if !changed {
-		t.Fatal("旧版图应发生改写")
+	if !bootFound || !changed {
+		t.Fatal("旧版图应识别 marker 并改写")
 	}
-	graph := extractBootJSON(t, patched)
-	if string(graph["rev"]) != `"rev-legacy"` {
-		t.Fatalf("旧版 rev 被破坏: %s", graph["rev"])
+	graph := extractBootGraph(t, patched)
+	if graph.Rev != "rev-legacy" {
+		t.Fatalf("旧版 rev 被破坏: %s", graph.Rev)
 	}
-	if ids := entryIDs(t, graph); len(ids) != 2 {
-		t.Fatalf("旧版图注入后应有 2 个条目: %d", len(ids))
+	if len(graph.Entries) != 2 {
+		t.Fatalf("旧版图注入后应有 2 个条目: %d", len(graph.Entries))
 	}
-	batches := batchDescriptors(t, graph)
-	if len(batches) != 1 || string(batches[0]["url"]) != `"/plugins/dsh-gateway-trust/client.js?rev=1"` {
-		t.Fatalf("旧版图应恰好注入信任插件自己的 batch: %v", batches)
+	if len(graph.Batches) != 1 || graph.Batches[0].URL != trustPluginURL {
+		t.Fatalf("旧版图应恰好注入信任插件自己的 batch: %+v", graph.Batches)
 	}
 }
 
 func TestInjectMalformedFailsLoud(t *testing.T) {
 	html := []byte("<head><script>window.__DSH_BOOT__ = {broken-json}</script></head>")
-	if _, _, err := injectBootManifestEntry(html); err == nil {
+	if _, _, _, err := injectBootManifestEntry(html); err == nil {
 		t.Fatal("畸形清单必须报错（响亮失败，不静默透传）")
 	}
 }
 
-func TestBootEntryWireShape(t *testing.T) {
-	// wire 形态须过 host 的 parseBootManifest 校验
-	var entry map[string]json.RawMessage
-	if err := json.Unmarshal(trustBootEntryJSON, &entry); err != nil {
-		t.Fatalf("boot 条目不是合法 JSON: %v", err)
-	}
-	for _, field := range []string{"id", "url", "rev"} {
-		if !strings.HasPrefix(string(entry[field]), `"`) {
-			t.Fatalf("%s 应为 string: %s", field, entry[field])
+func TestBootWireShape(t *testing.T) {
+	// wire 形态须过 host 的 parseBootManifest 校验；硬编码期望值防常量漂移
+	t.Run("entry", func(t *testing.T) {
+		var got bootEntry
+		if err := json.Unmarshal(trustBootEntryJSON, &got); err != nil {
+			t.Fatalf("boot 条目不是合法 JSON: %v", err)
 		}
-	}
-	if !bytes.Equal(entry["url"], []byte(`"/plugins/dsh-gateway-trust/client.js?rev=1"`)) {
-		t.Fatalf("url 与 id 推导不符: %s", entry["url"])
-	}
-	if string(entry["inject"]) != `["connection"]` {
-		t.Fatalf("inject 应为 [connection]: %s", entry["inject"])
-	}
-	if string(entry["immediately"]) != "true" {
-		t.Fatalf("immediately 应为 true: %s", entry["immediately"])
-	}
-}
-
-func TestBootBatchWireShape(t *testing.T) {
-	// wire 形态须过新 host 的 parseBootManifest batch 校验（phase 枚举、url/rev 字符串、entries 非空且都存在）
-	var batch map[string]json.RawMessage
-	if err := json.Unmarshal(trustBootBatchJSON, &batch); err != nil {
-		t.Fatalf("boot batch 不是合法 JSON: %v", err)
-	}
-	if string(batch["phase"]) != `"application"` {
-		t.Fatalf("phase 应为 application: %s", batch["phase"])
-	}
-	for _, field := range []string{"url", "rev"} {
-		if !strings.HasPrefix(string(batch[field]), `"`) {
-			t.Fatalf("%s 应为 string: %s", field, batch[field])
+		want := bootEntry{ID: trustPluginID, URL: trustPluginURL, Rev: trustPluginRev, Inject: []string{"connection"}, Immediately: true}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("entry wire 形态漂移: %+v != %+v", got, want)
 		}
-	}
-	var entry map[string]json.RawMessage
-	if err := json.Unmarshal(trustBootEntryJSON, &entry); err != nil {
-		t.Fatalf("boot 条目解析失败: %v", err)
-	}
-	if !bytes.Equal(batch["url"], entry["url"]) {
-		t.Fatalf("batch url 应等于 entry url（同一 bundle 端点）: %s", batch["url"])
-	}
-	var entries []string
-	if err := json.Unmarshal(batch["entries"], &entries); err != nil {
-		t.Fatalf("entries 解析失败: %v", err)
-	}
-	if len(entries) != 1 || entries[0] != trustPluginID {
-		t.Fatalf("entries 应恰好含自身 id: %v", entries)
-	}
+	})
+	t.Run("batch", func(t *testing.T) {
+		var got bootBatch
+		if err := json.Unmarshal(trustBootBatchJSON, &got); err != nil {
+			t.Fatalf("boot batch 不是合法 JSON: %v", err)
+		}
+		want := bootBatch{Phase: "application", URL: trustPluginURL, Rev: trustPluginRev, Entries: []string{trustPluginID}}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("batch wire 形态漂移: %+v != %+v", got, want)
+		}
+	})
 }
 
 func TestPluginBundleServesAsModule(t *testing.T) {
