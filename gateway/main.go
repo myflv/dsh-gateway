@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed" // go:embed 所需
 	"flag"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -102,7 +103,8 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 	if port == "" {
 		port = "80"
 	}
-	args := []string{*dshBin, "web", "--host", host, "--port", port}
+	// --no-open：容器里没有可交接的浏览器；启动 URL 由网关从 stdout 捕获后注入登录跳转
+	args := []string{*dshBin, "web", "--host", host, "--port", port, "--no-open"}
 	// 配置目录 = $HOME/.dsh：容器内 HOME=/root=工作区，用 dsh 原生默认即可，无需 DSH_HOME 覆盖
 	if err := os.MkdirAll(*workDir, 0o755); err != nil {
 		log.Fatalf("创建工作目录失败: %v", err)
@@ -114,9 +116,10 @@ func supervise(sigCh <-chan os.Signal, backendURL *url.URL) {
 	// ssh/nvm/bashrc 全走 HOME=/root，无需覆盖环境变量
 	for {
 		log.Printf("启动 dsh web (%s:%s) ...", host, port)
+		launchTokens.reset() // 旧进程令牌对新进程无效
 		cmd := exec.Command("node", args...)
 		cmd.Dir = *workDir // dsh 的 cwd：工作区根目录（ssh 走 HOME=/root/.ssh，不受 cwd 影响）
-		cmd.Stdout = os.Stdout
+		cmd.Stdout = io.MultiWriter(os.Stdout, launchTokens)
 		cmd.Stderr = os.Stderr
 		if err := cmd.Start(); err != nil {
 			log.Fatalf("启动 dsh web 失败: %v", err)

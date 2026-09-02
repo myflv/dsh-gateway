@@ -243,7 +243,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 			Secure: !*insecureCookie && (r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")),
 			MaxAge: int(sessionTTL.Seconds()),
 		})
-		http.Redirect(w, r, homePath, http.StatusFound)
+		http.Redirect(w, r, homeWithLaunchToken(), http.StatusFound)
 	}
 }
 

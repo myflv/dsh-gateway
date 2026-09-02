@@ -27,9 +27,16 @@ func proxyHandler(backend *url.URL) http.Handler {
 		if origin := req.Header.Get("Origin"); origin != "" {
 			req.Header.Set("Origin", originHeader)
 		}
+		// 0.1.2 起 webserver 对 HTML 开了 gzip。只 Del 不够：Go Transport 在
+		// 头缺失时会自己补 gzip 并透明解压，上游仍压缩一轮。identity 让上游
+		// 直接出明文，ModifyResponse 才能注入 boot 条目。
+		req.Header.Set("Accept-Encoding", "identity")
 	}
-	// 壳 HTML 注入信任插件 boot 条目，其余响应透传
+	// 壳 HTML 注入信任插件 boot 条目；index 401 改写成启动令牌交换
 	proxy.ModifyResponse = func(resp *http.Response) error {
+		if rewriteUnauthorizedIndex(resp) {
+			return nil
+		}
 		if resp.StatusCode != http.StatusOK {
 			return nil
 		}

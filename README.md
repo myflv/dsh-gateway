@@ -11,6 +11,8 @@ docker compose up -d
 
 打开 `http://宿主机IP:8080/plugins/dsh-gateway-auth/login` 登录。工作目录就是 `/root`（挂载的 `./workspace`），Web UI 直接 Continue 即可，无需手动选工作区。
 
+dsh 0.1.2 起 Web 自带启动令牌认证（未带 `?token=` 的首页会 401）。网关从 `dsh web` 的 stdout 捕获该令牌，登录成功后自动带上，无需打开 dsh 打印的 URL。
+
 ## 配置
 
 | 项 | 说明 |
